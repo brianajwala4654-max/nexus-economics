@@ -1,4 +1,4 @@
-const BASE_URL = 'http://localhost:3001';
+const BASE_URL = 'https://economic-ai-dashboard-production.up.railway.app';
 
 export async function getInflationData() {
   try {
