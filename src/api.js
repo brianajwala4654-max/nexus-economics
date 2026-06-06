@@ -1,11 +1,55 @@
+const BASE_URL = 'http://localhost:3001';
+
 export async function getInflationData() {
-  return [
-    { date: "2025-01", value: "4.1" },
-    { date: "2025-02", value: "4.3" },
-    { date: "2025-03", value: "4.6" },
-    { date: "2025-04", value: "4.8" },
-    { date: "2025-05", value: "5.1" },
-    { date: "2025-06", value: "5.4" },
-    { date: "2025-07", value: "5.7" },
-  ];
+  try {
+    const response = await fetch(`${BASE_URL}/api/inflation`);
+    const data = await response.json();
+    return data.observations.map(obs => ({
+      date: obs.date,
+      value: obs.value
+    }));
+  } catch (error) {
+    console.error('Error fetching inflation data:', error);
+    return [];
+  }
+}
+
+export async function getGDPData() {
+  try {
+    const response = await fetch(`${BASE_URL}/api/gdp`);
+    const data = await response.json();
+    return data.observations.map(obs => ({
+      date: obs.date,
+      value: obs.value
+    }));
+  } catch (error) {
+    console.error('Error fetching GDP data:', error);
+    return [];
+  }
+}
+
+export async function getExchangeRate() {
+  try {
+    const response = await fetch(`${BASE_URL}/api/exchange`);
+    const data = await response.json();
+    return {
+      KES: data.conversion_rates.KES,
+      UGX: data.conversion_rates.UGX,
+      TZS: data.conversion_rates.TZS
+    };
+  } catch (error) {
+    console.error('Error fetching exchange rate:', error);
+    return null;
+  }
+}
+
+export async function getNews() {
+  try {
+    const response = await fetch(`${BASE_URL}/api/news`);
+    const data = await response.json();
+    return data.articles.slice(0, 5);
+  } catch (error) {
+    console.error('Error fetching news:', error);
+    return [];
+  }
 }
