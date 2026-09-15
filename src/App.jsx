@@ -25,21 +25,8 @@ import {
 
 const BACKEND_URL = "https://nexus-economics.onrender.com";
 
-/*
-  MONETIZATION
-  ------------------------------------------------
-  Add your real payment/checkout URL to .env later:
-
-  VITE_PREMIUM_CHECKOUT_URL=https://your-checkout-link.com
-
-  For now the upgrade screen works, but payment activation
-  is intentionally not faked.
-*/
-
-const PREMIUM_CHECKOUT_URL =
-  import.meta.env.VITE_PREMIUM_CHECKOUT_URL || "";
-
 const FREE_REPORT_LIMIT = 2;
+const PREMIUM_PRICE = 499;
 
 const countries = {
   Kenya: {
@@ -167,8 +154,7 @@ const styles = {
 
   grid: {
     display: "grid",
-    gridTemplateColumns:
-      "repeat(auto-fit,minmax(210px,1fr))",
+    gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))",
     gap: "18px",
     marginTop: "26px",
     marginBottom: "25px",
@@ -280,6 +266,18 @@ const styles = {
     boxSizing: "border-box",
   },
 
+  input: {
+    width: "100%",
+    backgroundColor: "#0f172a",
+    color: "white",
+    border: "1px solid #334155",
+    borderRadius: "9px",
+    padding: "13px",
+    marginTop: "8px",
+    boxSizing: "border-box",
+    outline: "none",
+  },
+
   report: {
     backgroundColor: "#0f172a",
     borderRadius: "12px",
@@ -314,10 +312,7 @@ function formatValue(value, decimals = 1) {
 }
 
 function latestValue(data) {
-  if (!data || data.length === 0) {
-    return null;
-  }
-
+  if (!data || data.length === 0) return null;
   return data[data.length - 1]?.value;
 }
 
@@ -331,79 +326,66 @@ function prepareSeries(data) {
 }
 
 export default function App() {
-  const [activeNav, setActiveNav] =
-    useState("Dashboard");
+  const [activeNav, setActiveNav] = useState("Dashboard");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const [mobileMenuOpen, setMobileMenuOpen] =
-    useState(false);
+  const [country, setCountry] = useState("Kenya");
 
-  const [country, setCountry] =
-    useState("Kenya");
+  const [inflationData, setInflationData] = useState([]);
 
-  const [inflationData, setInflationData] =
-    useState([]);
+  const [economicData, setEconomicData] = useState({
+    gdpGrowth: [],
+    unemployment: [],
+    inflation: [],
+  });
 
-  const [economicData, setEconomicData] =
-    useState({
-      gdpGrowth: [],
-      unemployment: [],
-      inflation: [],
-    });
-
-  const [exchangeRate, setExchangeRate] =
-    useState(null);
-
+  const [exchangeRate, setExchangeRate] = useState(null);
   const [news, setNews] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const [loading, setLoading] =
-    useState(true);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [report, setReport] = useState("");
 
-  const [reportLoading, setReportLoading] =
-    useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
-  const [report, setReport] =
-    useState("");
+  const [showPremium, setShowPremium] = useState(false);
 
-  const [autoRefresh, setAutoRefresh] =
-    useState(false);
+  const [isPremium, setIsPremium] = useState(
+    () =>
+      localStorage.getItem("nexus_premium") === "true"
+  );
 
-  const [lastUpdated, setLastUpdated] =
-    useState(null);
+  const [reportsUsed, setReportsUsed] = useState(
+    () =>
+      Number(
+        localStorage.getItem("nexus_reports_used") || 0
+      )
+  );
 
-  const [showPremium, setShowPremium] =
-    useState(false);
+  const [email, setEmail] = useState(
+    localStorage.getItem("nexus_customer_email") || ""
+  );
 
-  const [isPremium, setIsPremium] =
-    useState(
-      () =>
-        localStorage.getItem(
-          "nexus_premium"
-        ) === "true"
-    );
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentMessage, setPaymentMessage] = useState("");
+  const [paymentReference, setPaymentReference] = useState("");
 
-  const [reportsUsed, setReportsUsed] =
-    useState(
-      () =>
-        Number(
-          localStorage.getItem(
-            "nexus_reports_used"
-          ) || 0
-        )
-    );
-
-  const [isMobile, setIsMobile] =
-    useState(
-      () =>
-        typeof window !== "undefined" &&
-        window.innerWidth <= 768
-    );
+  const [isMobile, setIsMobile] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.innerWidth <= 768
+  );
 
   const selected = countries[country];
 
+  /* ============================================================
+     MOBILE
+  ============================================================ */
+
   useEffect(() => {
     function handleResize() {
-      const mobile =
-        window.innerWidth <= 768;
+      const mobile = window.innerWidth <= 768;
 
       setIsMobile(mobile);
 
@@ -412,19 +394,16 @@ export default function App() {
       }
     }
 
-    window.addEventListener(
-      "resize",
-      handleResize
-    );
-
+    window.addEventListener("resize", handleResize);
     handleResize();
 
     return () =>
-      window.removeEventListener(
-        "resize",
-        handleResize
-      );
+      window.removeEventListener("resize", handleResize);
   }, []);
+
+  /* ============================================================
+     LOAD DATA
+  ============================================================ */
 
   useEffect(() => {
     loadData();
@@ -441,35 +420,225 @@ export default function App() {
     return () => clearInterval(interval);
   }, [autoRefresh, country]);
 
-  function activatePremium() {
-    if (PREMIUM_CHECKOUT_URL) {
-      window.open(
-        PREMIUM_CHECKOUT_URL,
-        "_blank",
-        "noopener,noreferrer"
+  /* ============================================================
+     PAYSTACK PAYMENT
+  ============================================================ */
+
+  async function startPayment() {
+    const cleanEmail = email.trim();
+
+    if (!cleanEmail) {
+      setPaymentMessage(
+        "Please enter your email address before continuing."
       );
       return;
     }
 
-    alert(
-      "Premium checkout is not connected yet. Add VITE_PREMIUM_CHECKOUT_URL to your .env file."
-    );
+    if (!cleanEmail.includes("@")) {
+      setPaymentMessage(
+        "Please enter a valid email address."
+      );
+      return;
+    }
+
+    setPaymentLoading(true);
+    setPaymentMessage("");
+
+    try {
+      localStorage.setItem(
+        "nexus_customer_email",
+        cleanEmail
+      );
+
+      const response = await fetch(
+        `${BACKEND_URL}/api/payment/initialize`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: cleanEmail,
+            plan: "premium"
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            data.message ||
+            "Unable to initialize payment."
+        );
+      }
+
+      const authorizationUrl =
+        data.authorization_url ||
+        data.data?.authorization_url;
+
+      const reference =
+        data.reference ||
+        data.data?.reference;
+
+      if (!authorizationUrl) {
+        throw new Error(
+          "Paystack did not return a checkout URL."
+        );
+      }
+
+      if (reference) {
+        localStorage.setItem(
+          "nexus_pending_payment_reference",
+          reference
+        );
+      }
+
+      /*
+        Paystack returns an authorization URL after the
+        backend initializes the transaction.
+
+        We redirect the customer to that secure checkout.
+      */
+
+      window.location.href = authorizationUrl;
+    } catch (error) {
+      console.error(
+        "Paystack initialization error:",
+        error
+      );
+
+      setPaymentMessage(
+        error.message ||
+          "Unable to start payment. Please try again."
+      );
+
+      setPaymentLoading(false);
+    }
   }
 
-  function simulatePremiumForTesting() {
+  /* ============================================================
+     PAYMENT CALLBACK / VERIFICATION
+  ============================================================ */
+
+  useEffect(() => {
+    const params = new URLSearchParams(
+      window.location.search
+    );
+
+    const reference =
+      params.get("reference") ||
+      params.get("trxref");
+
+    if (!reference) return;
+
+    verifyPayment(reference);
+
     /*
-      DEVELOPMENT ONLY.
-      Remove this button before launch.
+      Clean the reference from the browser URL after
+      reading it.
     */
 
-    localStorage.setItem(
-      "nexus_premium",
-      "true"
+    window.history.replaceState(
+      {},
+      document.title,
+      window.location.pathname
+    );
+  }, []);
+
+  async function verifyPayment(reference) {
+    setPaymentLoading(true);
+    setPaymentMessage(
+      "Verifying your Paystack payment..."
     );
 
-    setIsPremium(true);
-    setShowPremium(false);
+    try {
+      const response = await fetch(
+        `${BACKEND_URL}/api/payment/verify/${encodeURIComponent(
+          reference
+        )}`
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            data.message ||
+            "Payment verification failed."
+        );
+      }
+
+      /*
+        Different backend versions may return the
+        Paystack data at different levels.
+      */
+
+      const transaction =
+        data.data || data.transaction || data;
+
+      const status =
+        transaction?.status ||
+        data.status;
+
+      if (
+        status === "success" ||
+        data.success === true
+      ) {
+        localStorage.setItem(
+          "nexus_premium",
+          "true"
+        );
+
+        setIsPremium(true);
+        setPaymentReference(reference);
+        setPaymentMessage(
+          "Payment successful. Premium has been activated."
+        );
+        setShowPremium(false);
+
+        /*
+          Reset report usage because Premium now
+          has unlimited reports.
+        */
+
+        setReportsUsed(0);
+
+        localStorage.setItem(
+          "nexus_reports_used",
+          "0"
+        );
+      } else {
+        setPaymentMessage(
+          `Payment was not completed. Transaction status: ${
+            status || "unknown"
+          }`
+        );
+      }
+    } catch (error) {
+      console.error(
+        "Payment verification error:",
+        error
+      );
+
+      setPaymentMessage(
+        error.message ||
+          "Unable to verify payment."
+      );
+    } finally {
+      setPaymentLoading(false);
+    }
   }
+
+  function openPremiumModal() {
+    setPaymentMessage("");
+    setShowPremium(true);
+  }
+
+  /* ============================================================
+     REPORT CREDITS
+  ============================================================ */
 
   function useReportCredit() {
     if (isPremium) return true;
@@ -490,6 +659,10 @@ export default function App() {
 
     return true;
   }
+
+  /* ============================================================
+     DATA LOADING
+  ============================================================ */
 
   async function loadData() {
     setLoading(true);
@@ -513,9 +686,7 @@ export default function App() {
           : []
       );
 
-      setExchangeRate(
-        exchange || {}
-      );
+      setExchangeRate(exchange || {});
 
       setNews(
         Array.isArray(newsData)
@@ -531,9 +702,7 @@ export default function App() {
         }
       );
 
-      setLastUpdated(
-        new Date()
-      );
+      setLastUpdated(new Date());
     } catch (error) {
       console.error(
         "NexusEconomics error:",
@@ -544,10 +713,13 @@ export default function App() {
     }
   }
 
-  const gdpSeries =
-    prepareSeries(
-      economicData.gdpGrowth
-    );
+  /* ============================================================
+     CALCULATED DATA
+  ============================================================ */
+
+  const gdpSeries = prepareSeries(
+    economicData.gdpGrowth
+  );
 
   const unemploymentSeries =
     prepareSeries(
@@ -569,37 +741,29 @@ export default function App() {
     latestValue(gdpSeries);
 
   const currentUnemployment =
-    latestValue(
-      unemploymentSeries
-    );
+    latestValue(unemploymentSeries);
 
   const currentInflation =
-    latestValue(
-      worldBankInflation
-    ) ??
-    latestValue(
-      backendInflation
-    );
+    latestValue(worldBankInflation) ??
+    latestValue(backendInflation);
 
   const currentFX =
-    exchangeRate?.[
-      selected.currency
-    ];
+    exchangeRate?.[selected.currency];
+
+  /* ============================================================
+     PDF
+  ============================================================ */
 
   function downloadPDF() {
     if (!isPremium) {
-      setShowPremium(true);
+      openPremiumModal();
       return;
     }
 
     const doc = new jsPDF();
 
     doc.setFontSize(22);
-    doc.setTextColor(
-      14,
-      165,
-      233
-    );
+    doc.setTextColor(14, 165, 233);
 
     doc.text(
       "NexusEconomics",
@@ -608,11 +772,7 @@ export default function App() {
     );
 
     doc.setFontSize(11);
-    doc.setTextColor(
-      100,
-      116,
-      139
-    );
+    doc.setTextColor(100, 116, 139);
 
     doc.text(
       "Premium Economic Intelligence Report",
@@ -632,19 +792,9 @@ export default function App() {
       47
     );
 
-    doc.line(
-      20,
-      53,
-      190,
-      53
-    );
+    doc.line(20, 53, 190, 53);
 
-    doc.setTextColor(
-      30,
-      30,
-      30
-    );
-
+    doc.setTextColor(30, 30, 30);
     doc.setFontSize(14);
 
     doc.text(
@@ -682,10 +832,8 @@ export default function App() {
     doc.text(
       `USD/${selected.currency}: ${formatValue(
         currentFX,
-        selected.currency ===
-          "UGX" ||
-        selected.currency ===
-          "TZS"
+        selected.currency === "UGX" ||
+          selected.currency === "TZS"
           ? 0
           : 2
       )}`,
@@ -694,12 +842,7 @@ export default function App() {
     );
 
     if (report) {
-      doc.line(
-        20,
-        115,
-        190,
-        115
-      );
+      doc.line(20, 115, 190, 115);
 
       doc.setFontSize(14);
 
@@ -728,6 +871,10 @@ export default function App() {
       `NexusEconomics_${country}_Premium_Report.pdf`
     );
   }
+
+  /* ============================================================
+     AI REPORT
+  ============================================================ */
 
   async function generateReport() {
     if (!useReportCredit()) {
@@ -782,6 +929,13 @@ export default function App() {
       const data =
         await response.json();
 
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            "Report generation failed."
+        );
+      }
+
       setReport(
         data.report ||
           "The AI report could not be generated."
@@ -790,12 +944,17 @@ export default function App() {
       console.error(error);
 
       setReport(
-        "Unable to connect to the AI reporting service."
+        error.message ||
+          "Unable to connect to the AI reporting service."
       );
     } finally {
       setReportLoading(false);
     }
   }
+
+  /* ============================================================
+     DASHBOARD
+  ============================================================ */
 
   function Dashboard() {
     return (
@@ -892,10 +1051,7 @@ export default function App() {
                 </div>
 
                 <div style={styles.cardValue}>
-                  {formatValue(
-                    currentGDP
-                  )}
-                  %
+                  {formatValue(currentGDP)}%
                 </div>
 
                 <div style={styles.cardSub}>
@@ -922,21 +1078,11 @@ export default function App() {
                 <div style={styles.cardSub}>
                   National unemployment
                 </div>
-
-                <div
-                  style={{
-                    ...styles.trend,
-                    color: "#f59e0b",
-                  }}
-                >
-                  ● Latest available
-                </div>
               </div>
 
               <div style={styles.card}>
                 <div style={styles.cardLabel}>
-                  USD /{" "}
-                  {selected.currency}
+                  USD / {selected.currency}
                 </div>
 
                 <div style={styles.cardValue}>
@@ -984,11 +1130,7 @@ export default function App() {
               }}
             >
               <div style={styles.section}>
-                <div
-                  style={
-                    styles.sectionTitle
-                  }
-                >
+                <div style={styles.sectionTitle}>
                   📈 GDP Growth Trend
                 </div>
 
@@ -1005,9 +1147,7 @@ export default function App() {
                     height="100%"
                   >
                     <LineChart
-                      data={
-                        gdpSeries
-                      }
+                      data={gdpSeries}
                     >
                       <CartesianGrid
                         strokeDasharray="3 3"
@@ -1038,11 +1178,7 @@ export default function App() {
               </div>
 
               <div style={styles.section}>
-                <div
-                  style={
-                    styles.sectionTitle
-                  }
-                >
+                <div style={styles.sectionTitle}>
                   📊 Inflation Trend
                 </div>
 
@@ -1093,11 +1229,7 @@ export default function App() {
             </div>
 
             <div style={styles.section}>
-              <div
-                style={
-                  styles.sectionTitle
-                }
-              >
+              <div style={styles.sectionTitle}>
                 👷 Unemployment Trend
               </div>
 
@@ -1150,11 +1282,7 @@ export default function App() {
             </div>
 
             <div style={styles.section}>
-              <div
-                style={
-                  styles.sectionTitle
-                }
-              >
+              <div style={styles.sectionTitle}>
                 📰 Latest {country} Economic News
               </div>
 
@@ -1168,7 +1296,6 @@ export default function App() {
                           "14px 0",
                         borderBottom:
                           "1px solid #334155",
-                        minWidth: 0,
                       }}
                     >
                       <a
@@ -1184,8 +1311,6 @@ export default function App() {
                             "600",
                           textDecoration:
                             "none",
-                          overflowWrap:
-                            "break-word",
                         }}
                       >
                         {article.title}
@@ -1197,10 +1322,6 @@ export default function App() {
                             "#64748b",
                           fontSize:
                             "13px",
-                          overflowWrap:
-                            "break-word",
-                          wordBreak:
-                            "break-word",
                         }}
                       >
                         {
@@ -1226,6 +1347,10 @@ export default function App() {
       </>
     );
   }
+
+  /* ============================================================
+     ANALYTICS
+  ============================================================ */
 
   function Analytics() {
     return (
@@ -1254,10 +1379,7 @@ export default function App() {
             </div>
 
             <div style={styles.cardValue}>
-              {formatValue(
-                currentGDP
-              )}
-              %
+              {formatValue(currentGDP)}%
             </div>
           </div>
 
@@ -1298,7 +1420,6 @@ export default function App() {
               height: isMobile
                 ? "260px"
                 : "350px",
-              minWidth: 0,
             }}
           >
             <ResponsiveContainer
@@ -1346,7 +1467,6 @@ export default function App() {
               height: isMobile
                 ? "260px"
                 : "350px",
-              minWidth: 0,
             }}
           >
             <ResponsiveContainer
@@ -1389,6 +1509,10 @@ export default function App() {
     );
   }
 
+  /* ============================================================
+     GLOBAL MARKETS
+  ============================================================ */
+
   function GlobalMarkets() {
     const currencies = [
       ["KES", "🇰🇪", "Kenya"],
@@ -1416,7 +1540,6 @@ export default function App() {
             display: "flex",
             gap: "10px",
             flexWrap: "wrap",
-            alignItems: "center",
           }}
         >
           <span style={styles.badge}>
@@ -1446,11 +1569,7 @@ export default function App() {
                 key={code}
                 style={styles.card}
               >
-                <div
-                  style={{
-                    fontSize: "26px",
-                  }}
-                >
+                <div style={{ fontSize: "26px" }}>
                   {flag}
                 </div>
 
@@ -1464,14 +1583,10 @@ export default function App() {
                 </div>
 
                 <div
-                  style={
-                    styles.cardValue
-                  }
+                  style={styles.cardValue}
                 >
                   {formatValue(
-                    exchangeRate?.[
-                      code
-                    ],
+                    exchangeRate?.[code],
                     code === "UGX" ||
                       code === "TZS"
                       ? 0
@@ -1479,11 +1594,7 @@ export default function App() {
                   )}
                 </div>
 
-                <div
-                  style={
-                    styles.cardSub
-                  }
-                >
+                <div style={styles.cardSub}>
                   {name}
                 </div>
               </div>
@@ -1492,11 +1603,7 @@ export default function App() {
         </div>
 
         <div style={styles.section}>
-          <div
-            style={
-              styles.sectionTitle
-            }
-          >
+          <div style={styles.sectionTitle}>
             🌍 Currency Comparison
           </div>
 
@@ -1505,7 +1612,6 @@ export default function App() {
               height: isMobile
                 ? "280px"
                 : "350px",
-              minWidth: 0,
             }}
           >
             <ResponsiveContainer
@@ -1552,13 +1658,15 @@ export default function App() {
     );
   }
 
+  /* ============================================================
+     AI REPORTS
+  ============================================================ */
+
   function AIReports() {
-    const remaining =
-      Math.max(
-        0,
-        FREE_REPORT_LIMIT -
-          reportsUsed
-      );
+    const remaining = Math.max(
+      0,
+      FREE_REPORT_LIMIT - reportsUsed
+    );
 
     return (
       <>
@@ -1583,10 +1691,9 @@ export default function App() {
           >
             <div
               style={{
-                fontSize: "13px",
                 color: "#38bdf8",
+                fontSize: "13px",
                 fontWeight: "700",
-                marginBottom: "8px",
               }}
             >
               FREE PLAN
@@ -1597,6 +1704,7 @@ export default function App() {
                 color: "white",
                 fontSize: "20px",
                 fontWeight: "700",
+                marginTop: "8px",
               }}
             >
               {remaining} free AI report
@@ -1619,9 +1727,7 @@ export default function App() {
             </p>
 
             <button
-              onClick={() =>
-                setShowPremium(true)
-              }
+              onClick={openPremiumModal}
               style={styles.button}
             >
               ⭐ Upgrade to Premium
@@ -1641,11 +1747,7 @@ export default function App() {
         )}
 
         <div style={styles.section}>
-          <div
-            style={
-              styles.sectionTitle
-            }
-          >
+          <div style={styles.sectionTitle}>
             🤖 Generate Economic Report
           </div>
 
@@ -1664,9 +1766,7 @@ export default function App() {
           <select
             value={country}
             onChange={(e) => {
-              setCountry(
-                e.target.value
-              );
+              setCountry(e.target.value);
               setReport("");
             }}
             style={styles.select}
@@ -1693,11 +1793,14 @@ export default function App() {
             }}
           >
             <button
-              onClick={
-                generateReport
-              }
+              onClick={generateReport}
               disabled={reportLoading}
-              style={styles.button}
+              style={{
+                ...styles.button,
+                opacity: reportLoading
+                  ? 0.7
+                  : 1,
+              }}
             >
               {reportLoading
                 ? "⏳ Generating..."
@@ -1706,9 +1809,7 @@ export default function App() {
 
             {report && (
               <button
-                onClick={
-                  downloadPDF
-                }
+                onClick={downloadPDF}
                 style={
                   styles.greenButton
                 }
@@ -1729,6 +1830,10 @@ export default function App() {
       </>
     );
   }
+
+  /* ============================================================
+     PREMIUM
+  ============================================================ */
 
   function Premium() {
     return (
@@ -1757,7 +1862,6 @@ export default function App() {
                 color: "#38bdf8",
                 fontSize: "13px",
                 fontWeight: "700",
-                marginBottom: "10px",
               }}
             >
               FREE
@@ -1768,18 +1872,11 @@ export default function App() {
                 color: "white",
                 fontSize: "28px",
                 fontWeight: "800",
+                marginTop: "8px",
               }}
             >
               KSh 0
             </div>
-
-            <p
-              style={{
-                color: "#64748b",
-              }}
-            >
-              Explore the platform.
-            </p>
 
             <ul
               style={{
@@ -1792,9 +1889,7 @@ export default function App() {
               <li>East African FX data</li>
               <li>Economic news</li>
               <li>Charts and analytics</li>
-              <li>
-                {FREE_REPORT_LIMIT} AI reports
-              </li>
+              <li>{FREE_REPORT_LIMIT} AI reports</li>
             </ul>
           </div>
 
@@ -1812,7 +1907,6 @@ export default function App() {
                 color: "#38bdf8",
                 fontSize: "13px",
                 fontWeight: "700",
-                marginBottom: "10px",
               }}
             >
               ⭐ PREMIUM
@@ -1823,9 +1917,10 @@ export default function App() {
                 color: "white",
                 fontSize: "28px",
                 fontWeight: "800",
+                marginTop: "8px",
               }}
             >
-              KSh 499
+              KSh {PREMIUM_PRICE}
               <span
                 style={{
                   fontSize: "13px",
@@ -1838,15 +1933,6 @@ export default function App() {
               </span>
             </div>
 
-            <p
-              style={{
-                color: "#94a3b8",
-              }}
-            >
-              Built for analysts,
-              researchers and businesses.
-            </p>
-
             <ul
               style={{
                 color: "#cbd5e1",
@@ -1857,19 +1943,15 @@ export default function App() {
               <li>Unlimited AI reports</li>
               <li>Download professional PDFs</li>
               <li>Advanced economic analysis</li>
-              <li>Priority features</li>
               <li>Premium intelligence tools</li>
+              <li>Future premium features</li>
             </ul>
 
             <button
-              onClick={
-                activatePremium
-              }
+              onClick={openPremiumModal}
               style={{
                 ...styles.button,
                 width: "100%",
-                marginTop: "10px",
-                fontSize: "15px",
               }}
             >
               🚀 Get Premium
@@ -1878,11 +1960,7 @@ export default function App() {
         </div>
 
         <div style={styles.section}>
-          <div
-            style={
-              styles.sectionTitle
-            }
-          >
+          <div style={styles.sectionTitle}>
             Why Premium?
           </div>
 
@@ -1893,39 +1971,26 @@ export default function App() {
             }}
           >
             NexusEconomics Premium is
-            designed for people who need
-            more than a quick look at
-            economic data. Generate
-            unlimited AI-powered analysis
-            and turn economic indicators
-            into professional reports.
+            designed for analysts,
+            researchers and businesses
+            that need deeper economic
+            intelligence.
           </p>
 
           <button
-            onClick={
-              activatePremium
-            }
+            onClick={openPremiumModal}
             style={styles.greenButton}
           >
             ⭐ Upgrade Now
           </button>
-
-          {!PREMIUM_CHECKOUT_URL && (
-            <p
-              style={{
-                color: "#64748b",
-                fontSize: "12px",
-                marginTop: "12px",
-              }}
-            >
-              Payment checkout will be
-              connected before launch.
-            </p>
-          )}
         </div>
       </>
     );
   }
+
+  /* ============================================================
+     SETTINGS
+  ============================================================ */
 
   function Settings() {
     return (
@@ -1935,25 +2000,18 @@ export default function App() {
         </h1>
 
         <p style={styles.subtitle}>
-          Manage NexusEconomics
-          preferences
+          Manage NexusEconomics preferences
         </p>
 
         <div style={styles.section}>
-          <div
-            style={
-              styles.sectionTitle
-            }
-          >
+          <div style={styles.sectionTitle}>
             🌍 Default Country
           </div>
 
           <select
             value={country}
             onChange={(e) =>
-              setCountry(
-                e.target.value
-              )
+              setCountry(e.target.value)
             }
             style={styles.select}
           >
@@ -1972,11 +2030,7 @@ export default function App() {
         </div>
 
         <div style={styles.section}>
-          <div
-            style={
-              styles.sectionTitle
-            }
-          >
+          <div style={styles.sectionTitle}>
             🔄 Automatic Data Refresh
           </div>
 
@@ -2015,9 +2069,7 @@ export default function App() {
 
             <button
               onClick={loadData}
-              style={
-                styles.darkButton
-              }
+              style={styles.darkButton}
             >
               🔄 Refresh Now
             </button>
@@ -2025,11 +2077,7 @@ export default function App() {
         </div>
 
         <div style={styles.section}>
-          <div
-            style={
-              styles.sectionTitle
-            }
-          >
+          <div style={styles.sectionTitle}>
             ⭐ Subscription
           </div>
 
@@ -2054,22 +2102,27 @@ export default function App() {
 
           {!isPremium && (
             <button
-              onClick={() =>
-                setShowPremium(true)
-              }
+              onClick={openPremiumModal}
               style={styles.button}
             >
               Upgrade to Premium
             </button>
           )}
+
+          {isPremium && (
+            <div
+              style={{
+                ...styles.badge,
+                marginTop: "10px",
+              }}
+            >
+              ⭐ Premium Active
+            </div>
+          )}
         </div>
 
         <div style={styles.section}>
-          <div
-            style={
-              styles.sectionTitle
-            }
-          >
+          <div style={styles.sectionTitle}>
             ℹ️ About NexusEconomics
           </div>
 
@@ -2093,7 +2146,7 @@ export default function App() {
               fontSize: "13px",
             }}
           >
-            Version 3.1 · Developed by
+            Version 3.2 · Developed by
             Brian Otieno
           </p>
         </div>
@@ -2101,33 +2154,30 @@ export default function App() {
     );
   }
 
+  /* ============================================================
+     PAGE ROUTING
+  ============================================================ */
+
   function renderPage() {
     if (activeNav === "Analytics") {
       return <Analytics />;
     }
 
     if (
-      activeNav ===
-      "Global Markets"
+      activeNav === "Global Markets"
     ) {
       return <GlobalMarkets />;
     }
 
-    if (
-      activeNav === "AI Reports"
-    ) {
+    if (activeNav === "AI Reports") {
       return <AIReports />;
     }
 
-    if (
-      activeNav === "Premium"
-    ) {
+    if (activeNav === "Premium") {
       return <Premium />;
     }
 
-    if (
-      activeNav === "Settings"
-    ) {
+    if (activeNav === "Settings") {
       return <Settings />;
     }
 
@@ -2143,6 +2193,10 @@ export default function App() {
     ["⚙️", "Settings"],
   ];
 
+  /* ============================================================
+     RESPONSIVE SIDEBAR
+  ============================================================ */
+
   const sidebarStyle = isMobile
     ? {
         ...styles.sidebar,
@@ -2153,7 +2207,6 @@ export default function App() {
         width: "270px",
         minWidth: "270px",
         zIndex: 1000,
-        padding: "28px 18px",
         transform: mobileMenuOpen
           ? "translateX(0)"
           : "translateX(-100%)",
@@ -2173,12 +2226,15 @@ export default function App() {
       }
     : styles.main;
 
+  /* ============================================================
+     RENDER
+  ============================================================ */
+
   return (
     <>
       <Helmet>
         <title>
-          NexusEconomics —
-          Economic Intelligence
+          NexusEconomics — Economic Intelligence
         </title>
 
         <meta
@@ -2188,6 +2244,7 @@ export default function App() {
       </Helmet>
 
       {/* MOBILE TOP BAR */}
+
       {isMobile && (
         <div
           style={{
@@ -2204,7 +2261,6 @@ export default function App() {
             alignItems: "center",
             padding: "0 16px",
             zIndex: 900,
-            boxSizing: "border-box",
           }}
         >
           <button
@@ -2220,15 +2276,8 @@ export default function App() {
               color: "white",
               fontSize: "28px",
               cursor: "pointer",
-              padding: "4px 8px",
               marginRight: "12px",
-              lineHeight: 1,
             }}
-            aria-label={
-              mobileMenuOpen
-                ? "Close navigation menu"
-                : "Open navigation menu"
-            }
           >
             {mobileMenuOpen
               ? "✕"
@@ -2248,6 +2297,7 @@ export default function App() {
       )}
 
       {/* MOBILE OVERLAY */}
+
       {isMobile &&
         mobileMenuOpen && (
           <div
@@ -2268,11 +2318,11 @@ export default function App() {
 
       <div style={styles.app}>
         {/* SIDEBAR */}
+
         <aside style={sidebarStyle}>
           <div
             style={{
               ...styles.logo,
-              marginBottom: "30px",
               width: "100%",
             }}
           >
@@ -2301,10 +2351,8 @@ export default function App() {
                     );
                   }
                 }}
-                title={label}
                 style={{
                   ...styles.navItem,
-
                   ...(activeNav ===
                   label
                     ? styles.navActive
@@ -2322,9 +2370,7 @@ export default function App() {
                   {icon}
                 </span>
 
-                <span>
-                  {label}
-                </span>
+                <span>{label}</span>
 
                 {label ===
                   "Premium" &&
@@ -2351,7 +2397,7 @@ export default function App() {
           {!isPremium && (
             <div
               onClick={() => {
-                setShowPremium(true);
+                openPremiumModal();
 
                 if (isMobile) {
                   setMobileMenuOpen(
@@ -2385,7 +2431,6 @@ export default function App() {
                   color: "#cbd5e1",
                   fontSize: "12px",
                   marginTop: "5px",
-                  lineHeight: "1.5",
                 }}
               >
                 Unlock unlimited AI
@@ -2439,11 +2484,12 @@ export default function App() {
         </aside>
 
         {/* MAIN */}
+
         <main style={mainStyle}>
           {renderPage()}
 
           <div style={styles.footer}>
-            NexusEconomics v3.1 —
+            NexusEconomics v3.2 —
             East African Economic
             Intelligence · Developed by
             Brian Otieno
@@ -2451,7 +2497,10 @@ export default function App() {
         </main>
       </div>
 
-      {/* PREMIUM MODAL */}
+      {/* ========================================================
+          PAYSTACK PREMIUM MODAL
+      ======================================================== */}
+
       {showPremium && (
         <div
           style={{
@@ -2477,6 +2526,8 @@ export default function App() {
             style={{
               width: "100%",
               maxWidth: "500px",
+              maxHeight: "90vh",
+              overflowY: "auto",
               backgroundColor:
                 "#1e293b",
               border:
@@ -2574,13 +2625,13 @@ export default function App() {
                   marginTop: "5px",
                 }}
               >
-                KSh 499
+                KSh {PREMIUM_PRICE}
+
                 <span
                   style={{
                     fontSize: "13px",
                     color: "#64748b",
-                    fontWeight:
-                      "400",
+                    fontWeight: "400",
                   }}
                 >
                   {" "}
@@ -2610,58 +2661,123 @@ export default function App() {
               </div>
             </div>
 
+            {/* EMAIL */}
+
+            <div
+              style={{
+                marginTop: "20px",
+              }}
+            >
+              <label
+                style={{
+                  display: "block",
+                  color: "#cbd5e1",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                }}
+              >
+                Email address
+              </label>
+
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => {
+                  setEmail(
+                    e.target.value
+                  );
+                  setPaymentMessage("");
+                }}
+                placeholder="you@example.com"
+                style={styles.input}
+              />
+
+              <p
+                style={{
+                  color: "#64748b",
+                  fontSize: "11px",
+                  lineHeight: "1.5",
+                  marginTop: "7px",
+                }}
+              >
+                Your email is used to
+                initialize your Paystack
+                test transaction.
+              </p>
+            </div>
+
+            {/* PAYMENT MESSAGE */}
+
+            {paymentMessage && (
+              <div
+                style={{
+                  marginTop: "14px",
+                  padding: "12px",
+                  borderRadius: "9px",
+                  backgroundColor:
+                    paymentMessage
+                      .toLowerCase()
+                      .includes(
+                        "successful"
+                      )
+                      ? "#064e3b"
+                      : "#172033",
+                  border:
+                    "1px solid #334155",
+                  color:
+                    paymentMessage
+                      .toLowerCase()
+                      .includes(
+                        "successful"
+                      )
+                      ? "#6ee7b7"
+                      : "#94a3b8",
+                  fontSize: "12px",
+                  lineHeight: "1.5",
+                }}
+              >
+                {paymentMessage}
+              </div>
+            )}
+
+            {/* PAY BUTTON */}
+
             <button
-              onClick={
-                activatePremium
-              }
+              onClick={startPayment}
+              disabled={paymentLoading}
               style={{
                 ...styles.button,
                 width: "100%",
                 marginTop: "18px",
                 fontSize: "15px",
+                opacity:
+                  paymentLoading
+                    ? 0.65
+                    : 1,
+                cursor:
+                  paymentLoading
+                    ? "not-allowed"
+                    : "pointer",
               }}
             >
-              🚀 Continue to Payment
+              {paymentLoading
+                ? "⏳ Processing..."
+                : "🚀 Continue to Paystack"}
             </button>
 
-            {!PREMIUM_CHECKOUT_URL && (
-              <div
-                style={{
-                  marginTop: "12px",
-                  padding: "10px",
-                  backgroundColor:
-                    "#172033",
-                  borderRadius: "8px",
-                  color: "#64748b",
-                  fontSize: "11px",
-                  textAlign: "center",
-                  lineHeight: "1.5",
-                }}
-              >
-                Payment gateway is not
-                connected yet.
-              </div>
-            )}
-
-            {/* REMOVE THIS BEFORE PRODUCTION */}
-            <button
-              onClick={
-                simulatePremiumForTesting
-              }
+            <p
               style={{
-                marginTop: "14px",
-                background:
-                  "transparent",
-                border: "none",
                 color: "#475569",
                 fontSize: "10px",
-                cursor: "pointer",
-                width: "100%",
+                textAlign: "center",
+                marginTop: "12px",
+                lineHeight: "1.5",
               }}
             >
-              Development: Activate
-              Premium
-            </button>
+              You are currently using
+              Paystack Test Mode. No real
+              money will be charged.
+            </p>
           </div>
         </div>
       )}
